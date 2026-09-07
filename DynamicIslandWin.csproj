@@ -9,9 +9,9 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <!-- 版本标注：程序集版本与文件版本统一由 Version 生成。规则：每次功能更新必须升号 -->
-    <Version>3.31.0</Version>
-    <AssemblyVersion>3.31.0.0</AssemblyVersion>
-    <FileVersion>3.31.0.0</FileVersion>
+    <Version>3.32.0</Version>
+    <AssemblyVersion>3.32.0.0</AssemblyVersion>
+    <FileVersion>3.32.0.0</FileVersion>
     <Product>DynamicIslandWin</Product>
     <Description>DynamicIslandWin - Windows 灵动岛</Description>
     <Company>DynamicIslandWin</Company>

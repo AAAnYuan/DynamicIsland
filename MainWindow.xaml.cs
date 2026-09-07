@@ -1161,14 +1161,19 @@ namespace DynamicIslandWin
             _settingsWindow.Show();
         }
 
+        /// <summary>内置更新清单默认地址（GitHub Releases latest 直链；设置里可改）。</summary>
+        internal const string DefaultUpdateManifestUrl = "https://github.com/AAAnYuan/DynamicIsland/releases/latest/download/version.json";
+
         /// <summary>启动静默检查更新：拉取远端清单，若比当前新且未提示过 → 弹“发现新版本”并提供下载页。</summary>
         private async Task CheckForUpdateAsync()
         {
             try
             {
-                if (!IsStartupCheckUpdatesEnabled || string.IsNullOrWhiteSpace(UpdateManifestUrl)) return;
+                if (!IsStartupCheckUpdatesEnabled) return;
+                // 设置里没填则用内置默认地址
+                string url = string.IsNullOrWhiteSpace(UpdateManifestUrl) ? DefaultUpdateManifestUrl : UpdateManifestUrl.Trim();
                 await Task.Delay(2500).ConfigureAwait(true); // 等主窗口稳定再提示，避免打断启动
-                var info = await UpdateChecker.FetchAsync(UpdateManifestUrl).ConfigureAwait(true);
+                var info = await UpdateChecker.FetchAsync(url).ConfigureAwait(true);
                 if (info == null || string.IsNullOrWhiteSpace(info.Version)) return;
                 string current = CurrentVersionString();
                 if (!UpdateChecker.IsNewer(current, info.Version)) return;

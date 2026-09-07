@@ -53,7 +53,9 @@ namespace DynamicIslandWin
             SyncIdleStyleRadio();
             ChkStartup.IsChecked = IsStartupEnabled();
             ChkAutoCheckUpdate.IsChecked = _mainWindow.IsStartupCheckUpdatesEnabled;
-            TxtUpdateManifestUrl.Text = _mainWindow.UpdateManifestUrl;
+            TxtUpdateManifestUrl.Text = string.IsNullOrWhiteSpace(_mainWindow.UpdateManifestUrl)
+                ? MainWindow.DefaultUpdateManifestUrl
+                : _mainWindow.UpdateManifestUrl;
 
             // 2. 备忘录文字初始化（卡片仅在“已添加”时显示，状态由 RefreshCapsuleState 统一管理）
             TxtNoteTitle.Text = _mainWindow.NoteTitle;
