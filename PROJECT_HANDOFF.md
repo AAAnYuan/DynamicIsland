@@ -73,6 +73,10 @@
 - **检查更新（v3.31.0，客户端逻辑）**：启动静默拉取 `UpdateManifestUrl` 的 `version.json`（`{version,note,url}`，`UpdateChecker.cs`），
   版本较新且未提示过（`LastNotifiedUpdateVersion`）→ 弹“发现新版本…是否打开下载页？”（仅提示+打开浏览器，不做自动替换）。
   设置「基本偏好」底部：开关 `IsStartupCheckUpdatesEnabled` + 清单地址输入。更新源地址待用户提供后再填写并对外发布。
+- **GitHub 发布脚本（publish-github.ps1，UTF-8 BOM 以免 PS5.1 中文乱码）**：自动生成 `dist\version.json`；完整模式建 GitHub Release 并上传
+  zip + version.json（令牌取 `-Token` 或 `$env:GH_TOKEN`，仓库取 `-Owner/-Repo` 或 `$env:GH_REPO`，绝不写盘）。应用内清单地址应填
+  `https://github.com/<owner>/<repo>/releases/latest/download/version.json`（latest 直链指向最新版 asset）。
+  注意：仓库尚未创建/推送（等用户用 VS Code 发布后再执行脚本）。
 - **版本标签 + `--settings` 诊断参数**、单实例 mutex。
 - **滚轮切换主胶囊（展开态）修复（v3.20.0）**：原实现每个滚轮格都在尺寸弹簧动画中途重复改目标（各模块展开宽高不同：
   媒体 440×148 / 时钟 300×136 / 硬件 280×140 / 备注 320×170；弹簧欠阻尼会过冲），且圆角计算沿用上一模块紧凑宽度/固定 460，
