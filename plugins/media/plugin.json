@@ -1,0 +1,7 @@
+{
+  "id": "media",
+  "kind": "media",
+  "name": "媒体播放器",
+  "icon": "🎵",
+  "description": "全局媒体控制：播放/暂停/切歌与专辑封面展示。"
+}

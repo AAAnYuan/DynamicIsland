@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- 指定 Windows 11 SDK 目标，直接获得原生 WinRT API 访问权限 -->
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- 版本标注：程序集版本与文件版本统一由 Version 生成。规则：每次功能更新必须升号 -->
+    <Version>3.31.0</Version>
+    <AssemblyVersion>3.31.0.0</AssemblyVersion>
+    <FileVersion>3.31.0.0</FileVersion>
+    <Product>DynamicIslandWin</Product>
+    <Description>DynamicIslandWin - Windows 灵动岛</Description>
+    <Company>DynamicIslandWin</Company>
+  </PropertyGroup>
+
+  <!-- 胶囊插件：随构建/发布复制到输出目录 plugins\ -->
+  <ItemGroup>
+    <None Include="plugins\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

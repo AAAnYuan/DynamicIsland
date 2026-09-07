@@ -1,0 +1,21 @@
+# ===== 构建输出 =====
+bin/
+obj/
+
+# ===== 发布产物（如需自动更新请用 GitHub Releases，不入库）=====
+dist/
+
+# ===== 运行期生成（含用户本机配置/位置/日志，不入库）=====
+config.json
+*.log
+error.log
+
+# ===== 会话诊断临时目录 =====
+_repro/
+
+# ===== 编辑器 / OS =====
+.vs/
+.vscode/
+*.user
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,437 @@
+<Window x:Class="DynamicIslandWin.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DynamicIsland"
+        Height="400" Width="1100"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="{x:Null}"
+        ResizeMode="NoResize"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing"
+        LocationChanged="Window_LocationChanged">
+
+    <Window.Resources>
+        <!-- 核心播放/暂停圆形大按键 -->
+        <Style x:Key="GlassPlayPauseButton" TargetType="Button">
+            <Setter Property="Width" Value="48"/>
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Background" Value="#30FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#45FFFFFF"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="24">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#55FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 上一曲 / 下一曲 圆形微透按键 -->
+        <Style x:Key="GlassControlButton" TargetType="Button">
+            <Setter Property="Width" Value="38"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Background" Value="#15FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#25FFFFFF"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="19">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#35FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid x:Name="RootCanvas" Background="Transparent" 
+          UseLayoutRounding="True" SnapsToDevicePixels="True"
+          MouseLeftButtonDown="RootCanvas_MouseLeftButtonDown"
+          MouseRightButtonUp="RootCanvas_MouseRightButtonUp">
+
+        <!-- 悬浮胶囊总容器 (主胶囊居中) -->
+        <StackPanel x:Name="CapsulesContainer" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0">
+            <StackPanel.LayoutTransform>
+                <TransformGroup>
+                    <ScaleTransform x:Name="CapsulesGlobalScale" ScaleX="1.0" ScaleY="1.0"/>
+                </TransformGroup>
+            </StackPanel.LayoutTransform>
+
+            <!-- 主胶囊 -->
+            <Grid x:Name="MainIsland" Width="280" Height="44" Cursor="Hand" Margin="5,0"
+                  VerticalAlignment="Top"
+                  SizeChanged="MainIsland_SizeChanged"
+                  MouseEnter="MainIsland_MouseEnter"
+                  MouseLeave="MainIsland_MouseLeave"
+                  MouseLeftButtonUp="MainIsland_MouseLeftButtonUp"
+                  MouseRightButtonUp="MainIsland_MouseRightButtonUp"
+                  PreviewMouseWheel="MainIsland_PreviewMouseWheel">
+
+                <Path x:Name="IslandShapePath" Fill="#FF000000" StrokeThickness="1">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#45FFFFFF" Offset="0.0"/>
+                            <GradientStop Color="#10FFFFFF" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                    <Path.Effect>
+                        <DropShadowEffect x:Name="MainIslandShadow" BlurRadius="20" ShadowDepth="3" Direction="270" Opacity="0.55" Color="#000000"/>
+                    </Path.Effect>
+                </Path>
+
+                <!-- 极简小圆中心微光白点 -->
+                <Ellipse x:Name="IdleCircleDot" Width="8" Height="8" Fill="#E0FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
+
+                <!-- 内容承载根节点 -->
+                <Grid x:Name="MainIslandContentRoot" ClipToBounds="True">
+                    <!-- A. 主胶囊承载 - 媒体 -->
+                    <Grid x:Name="MainContent_Media" Visibility="Visible">
+                        <!-- 紧凑态 -->
+                        <Grid x:Name="MainMedia_Compact" Margin="12,0,14,0" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border x:Name="CompactCoverBorder" Grid.Column="0" Width="26" Height="26" Background="#20FFFFFF" SizeChanged="CoverShape_SizeChanged">
+                                <Grid>
+                                    <TextBlock x:Name="CompactFallbackIcon" Text="🎵" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Image x:Name="CompactCoverImage" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                </Grid>
+                            </Border>
+
+                            <TextBlock x:Name="CompactTitle" Grid.Column="1" 
+                                       Margin="10,0,10,0"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       TextWrapping="NoWrap">
+                                <Run Text="等待播放..." Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold"/>
+                            </TextBlock>
+
+                            <StackPanel x:Name="WaveContainer" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Height="32" Margin="0,0,2,0"/>
+                        </Grid>
+
+                        <!-- 展开态 -->
+                        <Grid x:Name="MainMedia_Expanded" Visibility="Collapsed" Margin="20,14,20,14" VerticalAlignment="Center">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border x:Name="ExpandedCoverBorder" Grid.Column="0" Width="52" Height="52" Background="#22FFFFFF" Margin="0,0,14,0" VerticalAlignment="Center" SizeChanged="CoverShape_SizeChanged">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="12" ShadowDepth="2" Color="#000000" Opacity="0.4"/>
+                                    </Border.Effect>
+                                    <Grid>
+                                        <TextBlock x:Name="ExpandedFallbackIcon" Text="🎵" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Image x:Name="ExpandedCoverImage" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock x:Name="ExpandedTitle" Text="暂无播放曲目" Foreground="#FFFFFF" FontWeight="Bold" FontSize="15" TextTrimming="CharacterEllipsis" Margin="0,0,0,2"/>
+                                    <TextBlock x:Name="ExpandedArtist" Text="暂无播放信息" Foreground="#85FFFFFF" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 控制排：♥ 与播放按钮集成在同一行，间距一致，整组居中 -->
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4,0,0">
+                                <Button x:Name="BtnLikeHeart" Click="BtnLike_Click" Style="{StaticResource GlassControlButton}" Width="38" Height="38" Margin="10,0" Visibility="Collapsed"
+                                        ToolTip="喜欢这首歌（向播放器发送喜欢按键）">
+                                    <Path x:Name="TxtLikeHeart" Data="M12,20.7 C9.6,18.8 2.8,13.6 2.8,8.9 C2.8,5.8 5.1,3.6 7.9,3.6 C9.6,3.6 11.2,4.5 12,6.1 C12.8,4.5 14.4,3.6 16.1,3.6 C18.9,3.6 21.2,5.8 21.2,8.9 C21.2,13.6 14.4,18.8 12,20.7 Z"
+                                          Fill="Transparent" Stroke="#B0FFFFFF" StrokeThickness="1.5" StrokeLineJoin="Round"
+                                          Stretch="Uniform" Width="17" Height="17" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Button>
+                                <Button Click="BtnPrev_Click" Style="{StaticResource GlassControlButton}" Margin="10,0">
+                                    <Path x:Name="IconPrevPath" Data="M 11,2 L 2,8 L 11,14 Z M 19,2 L 10,8 L 19,14 Z" Fill="White" Stroke="White" StrokeThickness="1.5" StrokeLineJoin="Round" Stretch="Uniform" Width="13" Height="11"/>
+                                </Button>
+                                <Button x:Name="BtnPlayPause" Click="BtnPlayPause_Click" Style="{StaticResource GlassPlayPauseButton}" Margin="10,0">
+                                    <Grid>
+                                        <Path x:Name="IconPlay" Data="M 2,1 L 14,8.5 L 2,16 Z" Fill="White" Stroke="White" StrokeThickness="2" StrokeLineJoin="Round" Stretch="Uniform" Width="15" Height="15" Visibility="Collapsed" Margin="2,0,0,0"/>
+                                        <Rectangle x:Name="IconPause" Width="14" Height="14" RadiusX="3" RadiusY="3" Fill="White" Visibility="Visible"/>
+                                    </Grid>
+                                </Button>
+                                <Button Click="BtnNext_Click" Style="{StaticResource GlassControlButton}" Margin="10,0">
+                                    <Path x:Name="IconNextPath" Data="M 2,2 L 11,8 L 2,14 Z M 10,2 L 19,8 L 10,14 Z" Fill="White" Stroke="White" StrokeThickness="1.5" StrokeLineJoin="Round" Stretch="Uniform" Width="13" Height="11"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+
+                    <!-- B. 主胶囊承载 - 通知与时钟 (加上 IconClockSymbol x:Name) -->
+                    <Grid x:Name="MainContent_Notif" Visibility="Collapsed">
+                        <StackPanel x:Name="MainNotif_Compact" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock x:Name="IconClockSymbol" Text="🕒" FontSize="11" Foreground="#88FFFFFF" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtMainClockTime" Text="12:00" Foreground="White" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel x:Name="MainNotif_Expanded" Visibility="Collapsed" Margin="18" VerticalAlignment="Center">
+                            <TextBlock x:Name="TxtMainNotifFullDate" Text="2026年9月4日 星期五" Foreground="#88FFFFFF" FontSize="11"/>
+                            <TextBlock x:Name="TxtMainNotifFullTime" Text="12:00:00" Foreground="White" FontSize="22" FontWeight="Bold" Margin="0,2,0,8"/>
+                            <Border Background="#15FFFFFF" CornerRadius="8" Padding="10,8">
+                                <TextBlock x:Name="TxtMainNotifBanner" Text="暂无新通知，系统运行正常" Foreground="#E0FFFFFF" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- C. 主胶囊承载 - 硬件监控 (加上 TxtMainCpuLabel / TxtMainGpuLabel x:Name) -->
+                    <Grid x:Name="MainContent_Hw" Visibility="Collapsed">
+                        <StackPanel x:Name="MainHw_Compact" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="C:" Foreground="#00E5FF" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtMainCpuVal" Text="0%" Foreground="White" FontSize="12" FontWeight="SemiBold" Margin="3,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="G:" Foreground="#30D158" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtMainGpuVal" Text="0%" Foreground="White" FontSize="12" FontWeight="SemiBold" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel x:Name="MainHw_Expanded" Visibility="Collapsed" Margin="18" VerticalAlignment="Center">
+                            <TextBlock Text="系统硬件负荷全景" Foreground="#88FFFFFF" FontSize="11" Margin="0,0,0,6"/>
+                            <Grid Margin="0,2"><TextBlock x:Name="TxtMainCpuLabel" Text="CPU 核心负载" Foreground="White" FontSize="11"/><TextBlock x:Name="TxtMainHwCpuBarVal" Text="0%" Foreground="#00E5FF" FontSize="11" HorizontalAlignment="Right"/></Grid>
+                            <ProgressBar x:Name="ProgressMainCpu" Height="4" Foreground="#00E5FF" Background="#20FFFFFF" BorderThickness="0" Margin="0,0,0,6"/>
+                            <Grid Margin="0,2"><TextBlock x:Name="TxtMainGpuLabel" Text="GPU 3D渲染负荷" Foreground="White" FontSize="11"/><TextBlock x:Name="TxtMainHwGpuBarVal" Text="0%" Foreground="#30D158" FontSize="11" HorizontalAlignment="Right"/></Grid>
+                            <ProgressBar x:Name="ProgressMainGpu" Height="4" Foreground="#30D158" Background="#20FFFFFF" BorderThickness="0"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- D. 主胶囊承载 - 记事备忘 -->
+                    <Grid x:Name="MainContent_Note" Visibility="Collapsed">
+                        <StackPanel x:Name="MainNote_Compact" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock x:Name="TxtMainNoteIcon" Text="📝" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TxtNoteCompactMain" Text="暂无内容" Foreground="White" FontSize="12" FontWeight="SemiBold" MaxWidth="104" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel x:Name="MainNote_Expanded" Visibility="Collapsed" Margin="16,12" VerticalAlignment="Center" Background="Transparent" Cursor="Hand">
+                            <TextBlock x:Name="TxtMainNoteHeader" Text="📝 记事备忘" Foreground="#88FFFFFF" FontSize="11" Margin="0,0,0,6"/>
+                            <!-- 显示态：标题 + 内容（单击进入内联编辑） -->
+                            <StackPanel x:Name="MainNote_Display" Background="Transparent" MouseLeftButtonDown="NoteExpanded_MouseDown">
+                                <TextBlock x:Name="TxtNoteExpandedTitle" Text="（未命名）" Foreground="White" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis" Margin="0,0,0,3"/>
+                                <TextBlock x:Name="TxtNoteExpandedMain" Text="（暂无内容，单击标题或正文可编辑）" Foreground="#D0FFFFFF" FontSize="12" TextWrapping="Wrap" MaxHeight="118"/>
+                            </StackPanel>
+                            <!-- 编辑态：标题 + 内容输入框，Enter/失焦保存 -->
+                            <StackPanel x:Name="MainNote_Edit" Visibility="Collapsed">
+                                <TextBox x:Name="EditNoteTitleMain" Foreground="White" Background="#20FFFFFF" BorderBrush="#35FFFFFF" BorderThickness="1"
+                                         FontSize="13" FontWeight="Bold" Padding="6,3" Margin="0,0,0,4" KeyDown="NoteEditTitle_KeyDown"/>
+                                <TextBox x:Name="EditNoteContentMain" Foreground="#E0FFFFFF" Background="#20FFFFFF" BorderBrush="#35FFFFFF" BorderThickness="1"
+                                         FontSize="12" Padding="6,4" AcceptsReturn="True" MinHeight="52" MaxHeight="120" TextWrapping="Wrap"
+                                         KeyDown="NoteEditContent_KeyDown"/>
+                                <TextBlock Text="标题 Enter 跳到内容；内容 Enter 保存；点其它地方取消" Foreground="#66FFFFFF" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
+
+            <!-- 次级独立胶囊 - 通知与时间 -->
+            <Grid x:Name="SubNotifIsland" Width="84" Height="44" Margin="5,0" Cursor="Hand" Visibility="Visible"
+                  VerticalAlignment="Top"
+                  SizeChanged="SubNotifIsland_SizeChanged"
+                  MouseEnter="SubNotifIsland_MouseEnter"
+                  MouseLeave="SubNotifIsland_MouseLeave"
+                  MouseLeftButtonUp="SubNotifIsland_MouseLeftButtonUp"
+                  MouseRightButtonUp="SubNotifIsland_MouseRightButtonUp">
+                <Path x:Name="SubNotifShapePath" Fill="#FF000000" StrokeThickness="1">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#45FFFFFF" Offset="0.0"/>
+                            <GradientStop Color="#10FFFFFF" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                    <Path.Effect>
+                        <DropShadowEffect x:Name="SubNotifShadow" BlurRadius="18" ShadowDepth="3" Direction="270" Opacity="0.5" Color="#000000"/>
+                    </Path.Effect>
+                </Path>
+
+                <Grid ClipToBounds="True">
+                    <StackPanel x:Name="SubNotif_CompactClock" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock x:Name="IconSubClockSymbol" Text="🕒" FontSize="11" Foreground="#88FFFFFF" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtSubClockTime" Text="12:00" Foreground="White" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SubNotif_ExpandedView" Visibility="Collapsed" Margin="14" VerticalAlignment="Center">
+                        <Grid>
+                            <TextBlock x:Name="TxtSubNotifFullDate" Text="2026年9月4日 星期五" Foreground="#77FFFFFF" FontSize="11"/>
+                            <TextBlock x:Name="TxtSubNotifFullTime" Text="12:00:00" Foreground="#00E5FF" FontSize="12" FontWeight="Bold" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <Border Background="#18FFFFFF" CornerRadius="8" Padding="10,8" Margin="0,8,0,0">
+                            <StackPanel>
+                                <TextBlock x:Name="TxtSubNotifHeader" Text="最新通知消息" Foreground="#88FFFFFF" FontSize="10" Margin="0,0,0,2"/>
+                                <TextBlock x:Name="TxtSubNotifBanner" Text="暂无未读消息" Foreground="White" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- 次级独立胶囊 - 硬件监控 -->
+            <Grid x:Name="SubHwIsland" Width="128" Height="44" Margin="5,0" Cursor="Hand" Visibility="Visible"
+                  VerticalAlignment="Top"
+                  SizeChanged="SubHwIsland_SizeChanged"
+                  MouseEnter="SubHwIsland_MouseEnter"
+                  MouseLeave="SubHwIsland_MouseLeave"
+                  MouseLeftButtonUp="SubHwIsland_MouseLeftButtonUp"
+                  MouseRightButtonUp="SubHwIsland_MouseRightButtonUp">
+                <Path x:Name="SubHwShapePath" Fill="#FF000000" StrokeThickness="1">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#45FFFFFF" Offset="0.0"/>
+                            <GradientStop Color="#10FFFFFF" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                    <Path.Effect>
+                        <DropShadowEffect x:Name="SubHwShadow" BlurRadius="18" ShadowDepth="3" Direction="270" Opacity="0.5" Color="#000000"/>
+                    </Path.Effect>
+                </Path>
+
+                <Grid ClipToBounds="True">
+                    <StackPanel x:Name="SubHw_CompactView" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="C:" Foreground="#00E5FF" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtSubCpuVal" Text="0%" Foreground="White" FontSize="12" FontWeight="SemiBold" Margin="3,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="G:" Foreground="#30D158" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtSubGpuVal" Text="0%" Foreground="White" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SubHw_ExpandedView" Visibility="Collapsed" Margin="14" VerticalAlignment="Center">
+                        <TextBlock x:Name="TxtSubHwTitle" Text="硬件资源负载全景" Foreground="#77FFFFFF" FontSize="11" Margin="0,0,0,6"/>
+                        <Grid Margin="0,2">
+                            <TextBlock x:Name="TxtSubCpuLabel" Text="CPU 负载" Foreground="White" FontSize="11"/>
+                            <TextBlock x:Name="TxtSubHwCpuDetail" Text="0%" Foreground="#00E5FF" FontSize="11" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <ProgressBar x:Name="ProgressSubCpu" Height="4" Foreground="#00E5FF" Background="#20FFFFFF" BorderThickness="0" Margin="0,0,0,6"/>
+                        <Grid Margin="0,2">
+                            <TextBlock x:Name="TxtSubGpuLabel" Text="GPU 3D" Foreground="White" FontSize="11"/>
+                            <TextBlock x:Name="TxtSubHwGpuDetail" Text="0%" Foreground="#30D158" FontSize="11" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <ProgressBar x:Name="ProgressSubGpu" Height="4" Foreground="#30D158" Background="#20FFFFFF" BorderThickness="0" Margin="0,0,0,6"/>
+                        <Grid Margin="0,2">
+                            <TextBlock x:Name="TxtSubRamLabel" Text="RAM 内存" Foreground="White" FontSize="11"/>
+                            <TextBlock x:Name="TxtSubHwRamDetail" Text="0%" Foreground="#BF5AF2" FontSize="11" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <ProgressBar x:Name="ProgressSubRam" Height="4" Foreground="#BF5AF2" Background="#20FFFFFF" BorderThickness="0"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- 次级独立胶囊 - 媒体播放 -->
+            <Grid x:Name="SubMediaIsland" Width="134" Height="44" Margin="5,0" Cursor="Hand" Visibility="Collapsed"
+                  VerticalAlignment="Top"
+                  SizeChanged="SubMediaIsland_SizeChanged"
+                  MouseEnter="SubMediaIsland_MouseEnter"
+                  MouseLeave="SubMediaIsland_MouseLeave"
+                  MouseLeftButtonUp="SubMediaIsland_MouseLeftButtonUp"
+                  MouseRightButtonUp="SubMediaIsland_MouseRightButtonUp">
+                <Path x:Name="SubMediaShapePath" Fill="#FF000000" StrokeThickness="1">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#45FFFFFF" Offset="0.0"/>
+                            <GradientStop Color="#10FFFFFF" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                    <Path.Effect>
+                        <DropShadowEffect x:Name="SubMediaShadow" BlurRadius="18" ShadowDepth="3" Direction="270" Opacity="0.5" Color="#000000"/>
+                    </Path.Effect>
+                </Path>
+
+                <Grid ClipToBounds="True">
+                    <StackPanel x:Name="SubMedia_CompactView" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <TextBlock Text="🎵" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtSubMediaTitle" Text="正在播放" Foreground="White" FontSize="12" MaxWidth="85" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Grid x:Name="SubMedia_ExpandedView" Visibility="Collapsed" Margin="14" VerticalAlignment="Center">
+                        <StackPanel>
+                            <TextBlock x:Name="TxtSubMediaExpandedTitle" Text="未知曲目" Foreground="White" FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="TxtSubMediaExpandedArtist" Text="未知艺术家" Foreground="#88FFFFFF" FontSize="11" Margin="0,2,0,8" TextTrimming="CharacterEllipsis"/>
+                            <!-- ♥ 与播放按钮同一行，间距一致 -->
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <Button x:Name="BtnLikeSubHeart" Click="BtnLike_Click" Style="{StaticResource GlassControlButton}" Width="36" Height="36" Margin="4,0" Visibility="Collapsed"
+                                        ToolTip="喜欢这首歌（向播放器发送喜欢按键）">
+                                    <Path x:Name="TxtLikeSubHeart" Data="M12,20.7 C9.6,18.8 2.8,13.6 2.8,8.9 C2.8,5.8 5.1,3.6 7.9,3.6 C9.6,3.6 11.2,4.5 12,6.1 C12.8,4.5 14.4,3.6 16.1,3.6 C18.9,3.6 21.2,5.8 21.2,8.9 C21.2,13.6 14.4,18.8 12,20.7 Z"
+                                          Fill="Transparent" Stroke="#B0FFFFFF" StrokeThickness="1.4" StrokeLineJoin="Round"
+                                          Stretch="Uniform" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Button>
+                                <Button Click="BtnPrev_Click" Style="{StaticResource GlassControlButton}" Margin="4,0">
+                                    <Path Data="M 11,2 L 2,8 L 11,14 Z M 19,2 L 10,8 L 19,14 Z" Fill="White" Stroke="White" StrokeThickness="1" StrokeLineJoin="Round" Stretch="Uniform" Width="10" Height="9"/>
+                                </Button>
+                                <Button Click="BtnPlayPause_Click" Style="{StaticResource GlassPlayPauseButton}" Width="40" Height="40" Margin="4,0">
+                                    <Rectangle Width="12" Height="12" RadiusX="3" RadiusY="3" Fill="White"/>
+                                </Button>
+                                <Button Click="BtnNext_Click" Style="{StaticResource GlassControlButton}" Margin="4,0">
+                                    <Path Data="M 2,2 L 11,8 L 2,14 Z M 10,2 L 19,8 L 10,14 Z" Fill="White" Stroke="White" StrokeThickness="1" StrokeLineJoin="Round" Stretch="Uniform" Width="10" Height="9"/>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
+
+            <!-- 次级独立胶囊 - 记事备忘 -->
+            <Grid x:Name="SubNoteIsland" Width="132" Height="44" Margin="5,0" Cursor="Hand" Visibility="Collapsed"
+                  VerticalAlignment="Top"
+                  SizeChanged="SubNoteIsland_SizeChanged"
+                  MouseEnter="SubNoteIsland_MouseEnter"
+                  MouseLeave="SubNoteIsland_MouseLeave"
+                  MouseLeftButtonUp="SubNoteIsland_MouseLeftButtonUp"
+                  MouseRightButtonUp="SubNoteIsland_MouseRightButtonUp">
+                <Path x:Name="SubNoteShapePath" Fill="#FF000000" StrokeThickness="1">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#45FFFFFF" Offset="0.0"/>
+                            <GradientStop Color="#10FFFFFF" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                    <Path.Effect>
+                        <DropShadowEffect x:Name="SubNoteShadow" BlurRadius="18" ShadowDepth="3" Direction="270" Opacity="0.5" Color="#000000"/>
+                    </Path.Effect>
+                </Path>
+
+                <Grid ClipToBounds="True">
+                    <StackPanel x:Name="SubNote_CompactView" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock x:Name="TxtSubNoteIcon" Text="📝" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtSubNoteCompact" Text="暂无内容" Foreground="White" FontSize="12" MaxWidth="100" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel x:Name="SubNote_ExpandedView" Visibility="Collapsed" Margin="14,12" VerticalAlignment="Center" Background="Transparent" Cursor="Hand">
+                        <TextBlock x:Name="TxtSubNoteHeader" Text="📝 记事备忘" Foreground="#88FFFFFF" FontSize="10" Margin="0,0,0,4"/>
+                        <!-- 显示态 -->
+                        <StackPanel x:Name="SubNote_Display" Background="Transparent" MouseLeftButtonDown="NoteExpanded_MouseDown">
+                            <TextBlock x:Name="TxtSubNoteExpandedTitle" Text="（未命名）" Foreground="White" FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="TxtSubNoteExpanded" Text="（暂无内容，单击标题或正文可编辑）" Foreground="#D0FFFFFF" FontSize="12" TextWrapping="Wrap" MaxHeight="118"/>
+                        </StackPanel>
+                        <!-- 编辑态 -->
+                        <StackPanel x:Name="SubNote_Edit" Visibility="Collapsed">
+                            <TextBox x:Name="EditNoteTitleSub" Foreground="White" Background="#20FFFFFF" BorderBrush="#35FFFFFF" BorderThickness="1"
+                                     FontSize="13" FontWeight="Bold" Padding="6,3" Margin="0,0,0,4" KeyDown="NoteEditTitle_KeyDown"/>
+                            <TextBox x:Name="EditNoteContentSub" Foreground="#E0FFFFFF" Background="#20FFFFFF" BorderBrush="#35FFFFFF" BorderThickness="1"
+                                     FontSize="12" Padding="6,4" AcceptsReturn="True" MinHeight="48" MaxHeight="110" TextWrapping="Wrap"
+                                     KeyDown="NoteEditContent_KeyDown"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+        </StackPanel>
+    </Grid>
+</Window>

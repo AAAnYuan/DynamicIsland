@@ -1,0 +1,7 @@
+{
+  "id": "note",
+  "kind": "note",
+  "name": "记事备忘",
+  "icon": "📝",
+  "description": "自定义文字胶囊：在设置中编辑文字并展示。"
+}

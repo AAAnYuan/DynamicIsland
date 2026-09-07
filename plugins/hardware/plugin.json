@@ -1,0 +1,7 @@
+{
+  "id": "hardware",
+  "kind": "hardware",
+  "name": "硬件监控",
+  "icon": "📊",
+  "description": "CPU / GPU / 内存占用实时监控。"
+}

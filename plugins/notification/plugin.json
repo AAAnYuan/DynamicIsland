@@ -1,0 +1,7 @@
+{
+  "id": "notification",
+  "kind": "notification",
+  "name": "通知与时钟",
+  "icon": "💬",
+  "description": "时钟与通知展示，支持定时提醒。"
+}
