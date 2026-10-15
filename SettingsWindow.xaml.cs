@@ -28,6 +28,12 @@ namespace DynamicIslandWin
         {
             InitializeComponent();
             _mainWindow = mainWindow;
+            Closing += (s, e) =>
+            {
+                _sliderCommit.Stop();
+                ApplyPendingSliderValues();
+                _mainWindow.FlushConfigurationNow();
+            };
             _sliderCommit.Tick += (s, e) => { _sliderCommit.Stop(); ApplyPendingSliderValues(); };
 
             // 1. 初始化尺寸与自适应开关
@@ -56,6 +62,7 @@ namespace DynamicIslandWin
             TxtUpdateManifestUrl.Text = string.IsNullOrWhiteSpace(_mainWindow.UpdateManifestUrl)
                 ? MainWindow.DefaultUpdateManifestUrl
                 : _mainWindow.UpdateManifestUrl;
+            ChkSystemNotif.IsChecked = _mainWindow.IsSystemNotificationEnabled;
 
             // 2. 备忘录文字初始化（卡片仅在“已添加”时显示，状态由 RefreshCapsuleState 统一管理）
             TxtNoteTitle.Text = _mainWindow.NoteTitle;
@@ -492,6 +499,12 @@ namespace DynamicIslandWin
             if (_mainWindow == null) return;
             _mainWindow.IsStartupCheckUpdatesEnabled = ChkAutoCheckUpdate.IsChecked == true;
             _mainWindow.SaveConfiguration();
+        }
+
+        private void ChkSystemNotif_Click(object sender, RoutedEventArgs e)
+        {
+            if (_mainWindow == null) return;
+            _mainWindow.SetSystemNotificationEnabled(ChkSystemNotif.IsChecked == true);
         }
 
         private void TxtUpdateManifestUrl_TextChanged(object sender, TextChangedEventArgs e)
@@ -1028,7 +1041,7 @@ namespace DynamicIslandWin
             _isClosingWindow = true;
             try { Close(); }
             catch { _isClosingWindow = false; }
-            Closed += (s, e) => _isClosingWindow = true;
+
         }
     }
 }

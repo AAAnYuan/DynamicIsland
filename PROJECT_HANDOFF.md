@@ -5,7 +5,7 @@
 
 - 路径：`D:\app\islandtop\DynamicIslandWin`
 - 类型：WPF (.NET 8) Windows 灵动岛克隆，x64
-- 当前版本：**3.31.0**（见 `DynamicIslandWin.csproj` `<Version>`）
+- 当前版本：**3.33.0**（见 `DynamicIslandWin.csproj` `<Version>`）
 - 目标框架：`net8.0-windows10.0.22621.0`，`PlatformTarget=x64`，`Nullable=enable`，
   `ImplicitUsings=enable`，`UseWPF=true`
 - 开发工具：VS Code / `dotnet build`
@@ -123,7 +123,7 @@
 - **自动发布规则（用户要求，务必遵守）**：每次功能/修复更新后**自动打包**（framework-dependent 到 `dist\DynamicIslandWin` + zip），**无需再向用户确认/汇报**；**打包前先把当前 `dist\DynamicIslandWin-win-x64.zip` 备份为** `dist\archive\DynamicIslandWin-v{版本号}-win-x64.zip`，**保留上一个版本副本**，便于回滚。
 - `publish-release.ps1` 支持 `-SingleFile`。默认是自包含（需联网），当前交付走 framework-dependent（离线）。
 - 发布需把 `plugins\` 文件夹随 exe 一起分发；`config.json`/`error.log` 写 exe 所在目录（建议可写位置）。
-- 当前交付：`dist\DynamicIslandWin-win-x64.zip`（约 6.4 MB，**v3.31.0**，framework-dependent；含 `plugins\` 随包分发）。
+- 当前交付：`dist\DynamicIslandWin-win-x64.zip`（约 6.4 MB，**v3.33.0**，framework-dependent；含 `plugins\` 随包分发）。
 - 历史版本备份：`dist\archive\`（自动发布保留上一版：v3.21.0 … v3.25.0）。
 
 ---
@@ -150,3 +150,11 @@
 ## 想在新会话继续时，怎么开口
 直接说：「读取并继续 DynamicIslandWin，参考 PROJECT_HANDOFF.md」。
 如果我在这个会话里做了非代码的内容，也会顺手更新本文档。
+
+## 2026-10-14 审查修复落地（v3.33.0）
+- 已应用媒体异步刷新、配置持久化、通知去重、插件解析、更新校验及退出清理修复。
+- 原项目构建通过：0 警告、0 错误；修复副本的 24 项回归检查通过。
+- 已保留 v3.32.0 分发包备份，生成 v3.33.0 分发包并启动 dist 中的程序。
+- 已清理 bin/obj 和本次工作区临时副本；源码、用户配置、插件、历史备份保留。
+- 尚未发布 GitHub；dist/version.json 是待发布清单。真实媒体、多屏动画仍需交互验收。
+

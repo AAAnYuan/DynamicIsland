@@ -421,6 +421,12 @@
                                     </TextBox>
                                 </StackPanel>
                             </Border>
+
+                            <!-- 系统通知 -->
+                            <Border Background="#14FFFFFF" CornerRadius="10" Padding="12,8" Margin="0,8,0,0">
+                                <CheckBox x:Name="ChkSystemNotif" Content="接收系统通知（关闭即停止监听与展示）" Click="ChkSystemNotif_Click"
+                                          Style="{StaticResource ModernDarkCheckBox}" FontSize="12"/>
+                            </Border>
                         </StackPanel>
 
                         <!-- 面板 C: 胶囊架构与专属动作配置 -->

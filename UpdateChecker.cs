@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace DynamicIslandWin
@@ -18,12 +19,14 @@ namespace DynamicIslandWin
     {
         public static async Task<UpdateInfo?> FetchAsync(string manifestUrl)
         {
-            if (string.IsNullOrWhiteSpace(manifestUrl)) return null;
+            if (!IsWebUrl(manifestUrl)) return null;
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("DynamicIslandWin");
             string json = await http.GetStringAsync(manifestUrl).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            if (!IsWebUrl(TryStr(root, "url"))) return null;
             return new UpdateInfo
             {
                 Version = TryStr(root, "version"),
@@ -32,37 +35,50 @@ namespace DynamicIslandWin
             };
         }
 
-        /// <summary>远端版本是否比当前新（支持 a.b.c / a.b / 带后缀的容错比较）。</summary>
+        internal static bool IsWebUrl(string? value) =>
+            Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+
+        /// <summary>按数字版本及预发布标识比较；无效清单不能触发更新提示。</summary>
         public static bool IsNewer(string currentVersion, string? remoteVersion)
         {
             if (string.IsNullOrWhiteSpace(remoteVersion)) return false;
-            var a = ParseNums(currentVersion);
-            var b = ParseNums(remoteVersion);
-            if (a == null || b == null)
-            {
-                return string.CompareOrdinal(remoteVersion.Trim(), currentVersion.Trim()) > 0;
-            }
+            var a = ParseNums(currentVersion, out var currentPre);
+            var b = ParseNums(remoteVersion, out var remotePre);
+            if (a == null || b == null) return false;
             for (int i = 0; i < Math.Max(a.Length, b.Length); i++)
             {
                 int x = i < a.Length ? a[i] : 0;
                 int y = i < b.Length ? b[i] : 0;
                 if (x != y) return y > x;
             }
-            return false;
+            if (currentPre == remotePre) return false;
+            if (currentPre.Length == 0) return false;
+            if (remotePre.Length == 0) return true;
+            var left = currentPre.Split('.');
+            var right = remotePre.Split('.');
+            for (int i = 0; i < Math.Min(left.Length, right.Length); i++)
+            {
+                bool ln = ulong.TryParse(left[i], out ulong lv);
+                bool rn = ulong.TryParse(right[i], out ulong rv);
+                int comparison = ln && rn ? rv.CompareTo(lv)
+                    : ln != rn ? (rn ? -1 : 1) : string.CompareOrdinal(right[i], left[i]);
+                if (comparison != 0) return comparison > 0;
+            }
+            return right.Length > left.Length;
         }
 
-        private static int[]? ParseNums(string version)
+        private static int[]? ParseNums(string version, out string prerelease)
         {
-            var text = version.Trim();
-            if (text.Length == 0) return null;
-            var parts = text.Split('.');
+            prerelease = "";
+            var match = Regex.Match(version.Trim(), @"^v?(\d+(?:\.\d+){1,3})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$", RegexOptions.CultureInvariant);
+            if (!match.Success) return null;
+            prerelease = match.Groups[2].Value;
+            var parts = match.Groups[1].Value.Split('.');
             var nums = new int[parts.Length];
             for (int i = 0; i < parts.Length; i++)
             {
-                var s = parts[i];
-                var dash = s.IndexOf('-');
-                if (dash >= 0) s = s.Substring(0, dash); // 忽略预发布后缀用于数值比较
-                if (!int.TryParse(s, out nums[i])) return null;
+                if (!int.TryParse(parts[i], out nums[i])) return null;
             }
             return nums;
         }

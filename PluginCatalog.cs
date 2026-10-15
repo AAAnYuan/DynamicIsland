@@ -92,11 +92,16 @@ namespace DynamicIslandWin
                         if (!File.Exists(file)) continue;
                         try
                         {
-                            var m = JsonSerializer.Deserialize<PluginManifest>(File.ReadAllText(file));
+                            var m = JsonSerializer.Deserialize<PluginManifest>(File.ReadAllText(file),
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                             if (m == null || string.IsNullOrWhiteSpace(m.Id) || string.IsNullOrWhiteSpace(m.Name) ||
                                 !TryParseKind(m.Kind, out _)) continue;
                             m.Id = m.Id.Trim();
                             m.Name = m.Name.Trim();
+                            // 内置 id 不能被另一种模块占用，否则默认模块无法补齐。
+                            bool reservedMismatch = Array.Exists(Defaults, d =>
+                                d.Id.Equals(m.Id, StringComparison.OrdinalIgnoreCase) && d.Kind != m.Kind);
+                            if (reservedMismatch) continue;
                             if (seenIds.Add(m.Id)) result.Add(m);
                         }
                         catch { /* 单个坏清单不影响其它插件 */ }

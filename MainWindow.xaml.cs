@@ -107,6 +107,8 @@ namespace DynamicIslandWin
         public IslandModule ConfiguredMainModule { get; set; } = IslandModule.Media;
         public bool IsMediaEnabled { get; set; } = true;
         public bool IsNotifEnabled { get; set; } = true;
+        /// <summary>接收系统通知（UserNotificationListener）总开关；关闭即停止监听与展示。</summary>
+        public bool IsSystemNotificationEnabled { get; set; } = true;
         public bool IsHwEnabled { get; set; } = true;
         public bool IsNoteEnabled { get; set; } = false;
         public string NoteText { get; set; } = "";
@@ -141,6 +143,9 @@ namespace DynamicIslandWin
 
     public partial class MainWindow : Window
     {
+        private bool _isClosed;
+        private bool _trackPollBusy;
+        private int _mediaLoadGeneration;
         private GlobalSystemMediaTransportControlsSessionManager? _mediaManager;
         private GlobalSystemMediaTransportControlsSession? _activeSession;
         private GlobalSystemMediaTransportControlsSession? _subscribedSession;
@@ -166,6 +171,9 @@ namespace DynamicIslandWin
 
         private bool _isCircleIdle = false;
         private bool _isNotificationActive = false;
+        // 通知来临时若把主胶囊切到“通知”模块，记录原模块以便通知结束后恢复
+        private IslandModule _moduleBeforeNotification = IslandModule.Media;
+        private bool _mainSwitchedForNotification = false;
 
         // “刘海吸附”闲置形态：扁“托盘/浅盘”形（顶宽平、底窄平、底角圆），顶部完全贴屏幕顶边
         private const double NotchIdleWidth = 150;
@@ -194,6 +202,8 @@ namespace DynamicIslandWin
 
         public bool IsMediaEnabled { get; set; } = true;
         public bool IsNotifEnabled { get; set; } = true;
+        /// <summary>接收系统通知（UserNotificationListener）总开关；关闭即停止监听与展示。</summary>
+        public bool IsSystemNotificationEnabled { get; set; } = true;
         public bool IsHwEnabled { get; set; } = true;
         public bool IsNoteEnabled { get; set; } = false;
         public string NoteText { get; set; } = "";
@@ -540,6 +550,7 @@ namespace DynamicIslandWin
             RebuildCapsuleLayout();
             RebuildWaveBars();
             await InitializeMediaSessionAsync();
+            if (_isClosed) return;
 
             _hoverIntentTimer.Interval = TimeSpan.FromMilliseconds(55);
             _hoverIntentTimer.Tick += (s, args) =>
@@ -588,6 +599,13 @@ namespace DynamicIslandWin
                 _notifResetTimer.Stop();
                 _isNotificationActive = false;
                 CollapseSubNotif();
+                // 通知期间若主胶囊被切到“通知”模块，恢复原模块并收起主胶囊
+                if (_mainSwitchedForNotification)
+                {
+                    _mainSwitchedForNotification = false;
+                    CollapseAll();
+                    SwitchMainActiveModule(_moduleBeforeNotification);
+                }
             };
 
             _systemStatusTimer.Interval = TimeSpan.FromMilliseconds(400);
@@ -620,25 +638,27 @@ namespace DynamicIslandWin
                     var config = JsonSerializer.Deserialize<AppConfig>(json);
                     if (config != null)
                     {
-                        BaseWidth = config.BaseWidth;
+                        BaseWidth = Math.Clamp(config.BaseWidth, 220, 480);
                         CapsuleScale = Math.Clamp(config.CapsuleScale, 0.75, 1.45);
                         IsAutoWidthEnabled = config.IsAutoWidthEnabled;
                         IsIdleCircleEnabled = config.IsIdleCircleEnabled;
                         // 闲置样式：新键 IdleStyle 优先；旧配置无此键时用 IsIdleCircleEnabled 推断（true→Circle，false→None）。
-                        IdleStyle = json.Contains("\"IdleStyle\":", StringComparison.Ordinal)
+                        using var configDocument = JsonDocument.Parse(json);
+                        IdleStyle = configDocument.RootElement.TryGetProperty(nameof(AppConfig.IdleStyle), out _)
                             ? (Enum.IsDefined(typeof(IdleStyle), config.IdleStyle) ? config.IdleStyle : IdleStyle.Circle)
                             : (config.IsIdleCircleEnabled ? IdleStyle.Circle : IdleStyle.None);
                         IsIdleCircleEnabled = IdleStyle != IdleStyle.None; // 同步旧字段，便于兼容读取
                         ConfiguredMainModule = config.ConfiguredMainModule;
                         IsMediaEnabled = config.IsMediaEnabled;
                         IsNotifEnabled = config.IsNotifEnabled;
+                        IsSystemNotificationEnabled = config.IsSystemNotificationEnabled;
                         IsHwEnabled = config.IsHwEnabled;
                         IsNoteEnabled = config.IsNoteEnabled;
                         NoteText = config.NoteText ?? "";
             NoteTitle = config.NoteTitle ?? "";
                         NoteLeftAction = config.NoteLeftAction;
                         NoteRightAction = config.NoteRightAction;
-                        Reminders = config.Reminders ?? new List<ReminderConfig>();
+                        Reminders = (config.Reminders ?? new List<ReminderConfig>()).FindAll(r => r != null && r.Hour >= 0 && r.Hour < 24 && r.Minute >= 0 && r.Minute < 60);
                         ActivePluginByKind = config.ActivePluginByKind ?? new Dictionary<string, string>();
                         LikeShortcutEnabled = config.LikeShortcutEnabled;
                         LikeShortcutKey = string.IsNullOrWhiteSpace(config.LikeShortcutKey) ? "F5" : config.LikeShortcutKey;
@@ -652,7 +672,11 @@ namespace DynamicIslandWin
                             ConfiguredMainModule = IslandModule.Media;
                         }
                         CurrentThemeKey = config.CurrentThemeKey;
-                        CurrentWaveColorHex = config.WaveColorHex;
+                        try
+                        {
+                            CurrentWaveColorHex = ((Color)ColorConverter.ConvertFromString(config.WaveColorHex ?? "#00E5FF")).ToString();
+                        }
+                        catch (FormatException) { CurrentWaveColorHex = "#00E5FF"; }
                         FontColorHex = config.FontColorHex ?? "";
 
                         WaveBarCount = Math.Clamp(config.WaveBarCount, 3, 9);
@@ -679,9 +703,12 @@ namespace DynamicIslandWin
                         SetWaveColor((Color)ColorConverter.ConvertFromString(CurrentWaveColorHex));
                         SetCapsuleScale(CapsuleScale);
 
-                        if (config.WindowLeft >= 0 && config.WindowTop >= 0 &&
-                            config.WindowLeft < SystemParameters.VirtualScreenWidth - 150 &&
-                            config.WindowTop < SystemParameters.VirtualScreenHeight - 100)
+                        UpdateNoteContentViews();
+                        if (!(config.WindowLeft == -1 && config.WindowTop == -1) &&
+                            config.WindowLeft >= SystemParameters.VirtualScreenLeft &&
+                            config.WindowTop >= SystemParameters.VirtualScreenTop &&
+                            config.WindowLeft < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 150 &&
+                            config.WindowTop < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 100)
                         {
                             this.Left = config.WindowLeft;
                             this.Top = config.WindowTop;
@@ -690,7 +717,7 @@ namespace DynamicIslandWin
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { AppLog.Write(ex, "config-load"); }
 
             UpdateNoteContentViews(); // 无论配置来源，都在 XAML 加载完成后同步一次备忘录预览
             PositionToTopCenter();
@@ -699,6 +726,7 @@ namespace DynamicIslandWin
         /// <summary>请求持久化：600ms 防抖后统一落盘，拖动/滑块等高频调用不再反复写文件。</summary>
         public void SaveConfiguration()
         {
+            if (_isClosed) return;
             if (_saveDebounceTimer.IsEnabled) _saveDebounceTimer.Stop();
             _saveDebounceTimer.Start();
         }
@@ -711,8 +739,8 @@ namespace DynamicIslandWin
             {
                 var config = new AppConfig
                 {
-                    WindowLeft = this.Left,
-                    WindowTop = this.Top,
+                    WindowLeft = _isIdleWindowDocked ? _idleRestoreLeft : this.Left,
+                    WindowTop = _isIdleWindowDocked ? _idleRestoreTop : (_dockAnimTimer.IsEnabled ? _dockAnimToTop : this.Top),
                     BaseWidth = this.BaseWidth,
                     CapsuleScale = this.CapsuleScale,
                     IsAutoWidthEnabled = this.IsAutoWidthEnabled,
@@ -730,6 +758,7 @@ namespace DynamicIslandWin
                     ConfiguredMainModule = this.ConfiguredMainModule,
                     IsMediaEnabled = this.IsMediaEnabled,
                     IsNotifEnabled = this.IsNotifEnabled,
+                    IsSystemNotificationEnabled = this.IsSystemNotificationEnabled,
                     IsHwEnabled = this.IsHwEnabled,
                     IsNoteEnabled = this.IsNoteEnabled,
                     NoteText = this.NoteText,
@@ -752,12 +781,34 @@ namespace DynamicIslandWin
                 };
 
                 string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(ConfigFilePath, json);
+                string temporaryPath = ConfigFilePath + ".tmp";
+                File.WriteAllText(temporaryPath, json);
+                File.Move(temporaryPath, ConfigFilePath, overwrite: true);
             }
-            catch { }
+            catch (Exception ex) { AppLog.Write(ex, "config-save"); }
         }
 
         private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e) => FlushConfigurationNow();
+
+        protected override void OnClosed(EventArgs e)
+        {
+            _isClosed = true;
+            ++_mediaLoadGeneration;
+            foreach (var timer in new[] { _systemStatusTimer, _notifResetTimer, _hoverIntentTimer,
+                _hoverLeaveTimer, _switchConfirmTimer, _saveDebounceTimer, _wheelSwitchTimer, _dockAnimTimer })
+                timer.Stop();
+            StopPhysicsLoop();
+            BindSessionEvents(null);
+            if (_mediaManager != null)
+            {
+                _mediaManager.CurrentSessionChanged -= OnCurrentSessionChanged;
+                _mediaManager.SessionsChanged -= OnSessionsChanged;
+            }
+            _activeSession = null;
+            _notifListener = null;
+            _gpuSampler.Dispose();
+            base.OnClosed(e);
+        }
         private void Window_LocationChanged(object? sender, EventArgs e)
         {
             // 刘海吸附时窗口被临时上移，不落盘，避免把“吸附位”写成用户位置；离开闲置恢复位置时再正常保存。
@@ -949,6 +1000,7 @@ namespace DynamicIslandWin
 
         public async Task InitializeSystemNotificationListenerAsync()
         {
+            if (!IsSystemNotificationEnabled) { _notifListener = null; return; }
             try
             {
                 var listener = Windows.UI.Notifications.Management.UserNotificationListener.Current;
@@ -959,6 +1011,7 @@ namespace DynamicIslandWin
                     AppLog.Info("system notification access: " + status);
                     return;
                 }
+                if (_isClosed) return;
                 _notifListener = listener;
                 AppLog.Info("system notification listener ready");
 
@@ -973,11 +1026,27 @@ namespace DynamicIslandWin
             catch (Exception ex) { AppLog.Write(ex, "notif-listener-init"); }
         }
 
+        /// <summary>开/关系统通知总开关。关闭即停止监听并清空已见集合。</summary>
+        public void SetSystemNotificationEnabled(bool enabled)
+        {
+            IsSystemNotificationEnabled = enabled;
+            if (enabled)
+            {
+                _ = InitializeSystemNotificationListenerAsync();
+            }
+            else
+            {
+                _notifListener = null;
+                _seenNotifIds.Clear();
+            }
+            SaveConfiguration();
+        }
+
         /// <summary>心跳轮询（约 2s 一次）：桌面应用环境下的 UserNotificationListener 事件订阅不可靠，改轮询同样可达。</summary>
         private DateTime _lastNotifPollUtc = DateTime.MinValue;
         private void PollSystemNotifications()
         {
-            if (_notifListener == null) return;
+            if (_notifListener == null || !IsSystemNotificationEnabled) return;
             if ((DateTime.UtcNow - _lastNotifPollUtc).TotalSeconds < 2) return;
             _lastNotifPollUtc = DateTime.UtcNow;
             _ = RefreshAndShowLatestNotificationAsync();
@@ -990,11 +1059,12 @@ namespace DynamicIslandWin
             try
             {
                 var items = await _notifListener.GetNotificationsAsync(Windows.UI.Notifications.NotificationKinds.Toast);
+                if (_isClosed) return;
                 Windows.UI.Notifications.UserNotification? candidate = null;
                 foreach (var n in items)
                 {
-                    if (_seenNotifIds.Contains(n.Id)) continue;
-                    if (candidate == null || n.Id > candidate.Id) candidate = n;
+                    if (!_seenNotifIds.Add(n.Id)) continue;
+                    if (candidate == null || n.CreationTime > candidate.CreationTime) candidate = n;
                 }
                 if (candidate != null)
                 {
@@ -1173,7 +1243,9 @@ namespace DynamicIslandWin
                 // 设置里没填则用内置默认地址
                 string url = string.IsNullOrWhiteSpace(UpdateManifestUrl) ? DefaultUpdateManifestUrl : UpdateManifestUrl.Trim();
                 await Task.Delay(2500).ConfigureAwait(true); // 等主窗口稳定再提示，避免打断启动
+                if (_isClosed || !IsStartupCheckUpdatesEnabled) return;
                 var info = await UpdateChecker.FetchAsync(url).ConfigureAwait(true);
+                if (_isClosed || !IsStartupCheckUpdatesEnabled) return;
                 if (info == null || string.IsNullOrWhiteSpace(info.Version)) return;
                 string current = CurrentVersionString();
                 if (!UpdateChecker.IsNewer(current, info.Version)) return;
@@ -1186,7 +1258,7 @@ namespace DynamicIslandWin
                 msg += "\n\n是否打开下载页？";
                 var res = MessageBox.Show(this, msg, "DynamicIslandWin 有更新",
                     MessageBoxButton.YesNo, MessageBoxImage.Information);
-                if (res == MessageBoxResult.Yes && !string.IsNullOrWhiteSpace(info.Url))
+                if (res == MessageBoxResult.Yes && UpdateChecker.IsWebUrl(info.Url))
                 {
                     try { Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true }); } catch { }
                 }
@@ -1478,6 +1550,7 @@ namespace DynamicIslandWin
         #region 6. 物理弹簧主循环与流体声波
         private void StartPhysicsLoop()
         {
+            if (_isClosed) return;
             if (!_isPhysicsRunning)
             {
                 _isPhysicsRunning = true;
@@ -2254,7 +2327,14 @@ namespace DynamicIslandWin
                 }
                 else
                 {
+                    // 记录原主模块，通知结束后恢复；主胶囊展开显示通知
+                    if (ActiveMainModule != IslandModule.Notification)
+                    {
+                        _moduleBeforeNotification = ActiveMainModule;
+                        _mainSwitchedForNotification = true;
+                    }
                     SwitchMainActiveModule(IslandModule.Notification);
+                    _activeExpandedCapsule = CapsuleId.Main;
                     ExpandMainIsland();
                 }
 
@@ -2439,17 +2519,30 @@ namespace DynamicIslandWin
             try
             {
                 _mediaManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                if (_mediaManager == null) return;
+                if (_mediaManager == null || _isClosed) return;
 
-                _mediaManager.CurrentSessionChanged += async (s, e) => await RefreshActiveMediaAsync();
-                _mediaManager.SessionsChanged += async (s, e) => await RefreshActiveMediaAsync();
+                _mediaManager.CurrentSessionChanged += OnCurrentSessionChanged;
+                _mediaManager.SessionsChanged += OnSessionsChanged;
                 await RefreshActiveMediaAsync();
             }
             catch { }
         }
 
+        private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
+            => QueueMediaRefresh();
+
+        private void OnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
+            => QueueMediaRefresh();
+
+        private void QueueMediaRefresh()
+        {
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            Dispatcher.BeginInvoke(new Action(() => { if (!_isClosed) _ = RefreshActiveMediaAsync(); }));
+        }
+
         private async Task RefreshActiveMediaAsync()
         {
+            if (_isClosed) return;
             try
             {
                 if (_mediaManager == null) return;
@@ -2474,7 +2567,20 @@ namespace DynamicIslandWin
                 if (_activeSession != null)
                 {
                     await LoadMediaPropertiesAsync();
+                    if (!_isClosed) UpdatePlaybackIconState();
+                }
+                else
+                {
+                    ++_mediaLoadGeneration;
+                    _currentSongTitle = "";
+                    _currentSongArtist = "";
+                    CompactTitle.Text = "未检测到播放器";
+                    ExpandedTitle.Text = TxtSubMediaTitle.Text = TxtSubMediaExpandedTitle.Text = "未检测到播放器";
+                    ExpandedArtist.Text = TxtSubMediaExpandedArtist.Text = "";
+                    CompactCoverImage.Source = ExpandedCoverImage.Source = null;
+                    CompactFallbackIcon.Visibility = ExpandedFallbackIcon.Visibility = Visibility.Visible;
                     UpdatePlaybackIconState();
+                    RecalculateMainCompactWidth();
                 }
             }
             catch { }
@@ -2482,6 +2588,7 @@ namespace DynamicIslandWin
 
         private void BindSessionEvents(GlobalSystemMediaTransportControlsSession? session)
         {
+            if (ReferenceEquals(_subscribedSession, session)) return;
             if (_subscribedSession != null)
             {
                 try
@@ -2505,37 +2612,27 @@ namespace DynamicIslandWin
             }
         }
 
-        private async void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
-        {
-            await Dispatcher.InvokeAsync(async () => await LoadMediaPropertiesAsync());
-        }
+        private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
+            => QueueMediaRefresh();
 
         private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                UpdatePlaybackIconState();
-                StartPhysicsLoop();
-            });
-        }
+            => QueueMediaRefresh();
 
         private async Task CheckTrackChangeFallbackAsync()
         {
-            if (_activeSession != null)
+            if (_isClosed || _trackPollBusy || _activeSession == null) return;
+            _trackPollBusy = true;
+            var session = _activeSession;
+            try
             {
-                try
-                {
-                    var props = await _activeSession.TryGetMediaPropertiesAsync();
-                    if (props != null && !string.IsNullOrWhiteSpace(props.Title))
-                    {
-                        if (props.Title != _currentSongTitle)
-                        {
-                            await LoadMediaPropertiesAsync();
-                        }
-                    }
-                }
-                catch { }
+                var props = await session.TryGetMediaPropertiesAsync();
+                if (_isClosed || !ReferenceEquals(session, _activeSession) || props == null) return;
+                string title = string.IsNullOrWhiteSpace(props.Title) ? "未知曲目" : props.Title;
+                if (title != _currentSongTitle || (props.Artist ?? "") != _currentSongArtist)
+                    await LoadMediaPropertiesAsync();
             }
+            catch (Exception ex) { AppLog.Write(ex, "media-poll"); }
+            finally { _trackPollBusy = false; }
         }
 
         private void UpdatePlaybackIconState()
@@ -2559,17 +2656,18 @@ namespace DynamicIslandWin
 
         private async Task LoadMediaPropertiesAsync()
         {
-            if (_activeSession == null) return;
+            var session = _activeSession;
+            if (_isClosed || session == null) return;
+            int generation = ++_mediaLoadGeneration;
             try
             {
-                var props = await _activeSession.TryGetMediaPropertiesAsync();
+                var props = await session.TryGetMediaPropertiesAsync();
                 if (props == null) return;
 
                 string title = string.IsNullOrWhiteSpace(props.Title) ? "未知曲目" : props.Title;
                 string artist = string.IsNullOrWhiteSpace(props.Artist) ? "" : props.Artist;
 
-                _currentSongTitle = title;
-                _currentSongArtist = artist;
+
 
                 BitmapImage? art = null;
                 if (props.Thumbnail != null)
@@ -2593,6 +2691,9 @@ namespace DynamicIslandWin
 
                 Dispatcher.Invoke(() =>
                 {
+                    if (_isClosed || generation != _mediaLoadGeneration || !ReferenceEquals(session, _activeSession)) return;
+                    _currentSongTitle = title;
+                    _currentSongArtist = artist;
                     CompactTitle.Inlines.Clear();
                     CompactTitle.Inlines.Add(new Run(title) { Foreground = GetThemePrimaryBrush(), FontWeight = FontWeights.SemiBold });
                     if (!string.IsNullOrEmpty(artist) && artist != "未知艺术家")
@@ -2713,6 +2814,7 @@ namespace DynamicIslandWin
 
         private void UpdateHardwareMetrics()
         {
+            if (!IsHwEnabled) return;
             try
             {
                 int cpu = 0;
@@ -2766,7 +2868,7 @@ namespace DynamicIslandWin
             {
                 if (e.OriginalSource is DependencyObject dep)
                 {
-                    if (FindParent<Button>(dep) != null) return;
+                    if (FindParent<Button>(dep) != null || FindParent<TextBox>(dep) != null) return;
                 }
                 try
                 {
@@ -2780,7 +2882,13 @@ namespace DynamicIslandWin
         private static T? FindParent<T>(DependencyObject child) where T : DependencyObject
         {
             DependencyObject? cur = child;
-            while (cur != null) { if (cur is T m) return m; cur = VisualTreeHelper.GetParent(cur); }
+            while (cur != null)
+            {
+                if (cur is T m) return m;
+                cur = cur is ContentElement content
+                    ? ContentOperations.GetParent(content) ?? (content as FrameworkContentElement)?.Parent
+                    : VisualTreeHelper.GetParent(cur);
+            }
             return null;
         }
         #endregion
@@ -2839,7 +2947,7 @@ namespace DynamicIslandWin
 
     /// <summary>真实 GPU 负载采样：通过 PDH 读取 “GPU Engine(*)\Utilization Percentage”，
     /// 对所有图形引擎实例求和并封顶 100% 作为整体 GPU 负载。计数器不存在/不可用时 IsEnabled=false，UI 显示 “--”，绝不返回假数据。</summary>
-    internal sealed class GpuLoadSampler
+    internal sealed class GpuLoadSampler : IDisposable
     {
         private const string CounterPath = "\\GPU Engine(*)\\Utilization Percentage";
         private const uint PdhFmtDouble = 0x00000200;
@@ -2848,12 +2956,14 @@ namespace DynamicIslandWin
         private IntPtr _query = IntPtr.Zero;
         private IntPtr _counter = IntPtr.Zero;
         private bool _primed;
+        private DateTime _nextEnableAttemptUtc;
 
         public bool IsEnabled { get; private set; }
 
         public void TryEnable()
         {
-            if (IsEnabled || _query != IntPtr.Zero) return;
+            if (IsEnabled || _query != IntPtr.Zero || DateTime.UtcNow < _nextEnableAttemptUtc) return;
+            _nextEnableAttemptUtc = DateTime.UtcNow.AddSeconds(30);
             try
             {
                 if (PdhOpenQuery(null, IntPtr.Zero, out _query) != 0) return;
@@ -2906,6 +3016,13 @@ namespace DynamicIslandWin
                 }
             }
             catch { return null; }
+        }
+
+        public void Dispose()
+        {
+            if (_query != IntPtr.Zero) PdhCloseQuery(_query);
+            _query = _counter = IntPtr.Zero;
+            IsEnabled = _primed = false;
         }
 
         [StructLayout(LayoutKind.Sequential)]
